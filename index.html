@@ -25,6 +25,9 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(-
 .note{font-size:.9rem;color:var(--acc2);margin:.5rem 0}
 .dim{color:var(--dim);font-size:.85rem}
 article[lang]{font-size:1.15rem;overflow-wrap:anywhere}
+#metaTxt{overflow-wrap:anywhere}
+#metaTech span{overflow-wrap:anywhere;word-break:break-word;display:block;margin-top:.3rem}
+#metaTech summary{cursor:pointer;min-height:44px;padding:.5rem 0}
 article pre{white-space:pre-wrap;font-family:inherit;background:#0b1220;border:1px solid var(--line);border-radius:.6rem;padding:.9rem;font-size:1.05rem}
 table{border-collapse:collapse;width:100%;font-size:1rem}
 th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:right;vertical-align:top}
@@ -56,6 +59,7 @@ a{color:var(--acc)}
 <section id="metaCard" class="card" hidden aria-labelledby="meta-h">
 <h2 id="meta-h">פרטי הקובץ</h2>
 <p id="metaTxt"></p>
+<details id="metaTech" class="dim" hidden><summary>פרטים טכניים</summary><span id="metaMime"></span></details>
 <div class="row" id="actRow" style="margin-top:.6rem">
 <button class="ghost" id="btnCopy">העתקת הטקסט</button>
 <button class="ghost" id="btnSave">שמירה כקובץ טקסט</button>
@@ -78,7 +82,7 @@ a{color:var(--acc)}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const statusEl=$("status"),out=$("out"),metaCard=$("metaCard"),metaTxt=$("metaTxt"),zCard=$("zCard"),zList=$("zList"),encNote=$("encNote");
+const statusEl=$("status"),out=$("out"),metaCard=$("metaCard"),metaTxt=$("metaTxt"),metaTech=$("metaTech"),metaMime=$("metaMime"),zCard=$("zCard"),zList=$("zList"),encNote=$("encNote");
 let curText="",curName="";
 function say(m,c){statusEl.textContent=m;statusEl.className="status "+(c||"")}
 function human(n){if(n<1024)return n+" בייט";if(n<1048576)return (n/1024).toFixed(1)+" ק״ב";return (n/1048576).toFixed(1)+" מ״ב"}
@@ -156,8 +160,9 @@ async function showPdf(name,buf){
   for(let p=1;p<=n;p++){
     const pg=await pdf.getPage(p);
     const tc=await pg.getTextContent();
-    const s=tc.items.map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
-    if(s){html+="<section aria-label=\"עמוד "+p+"\"><h3>עמוד "+p+"</h3><p>"+esc(s)+"</p></section>";all+=s+"\n"}
+    const raw=tc.items.map(i=>i.str+(i.hasEOL?"\n":" ")).join("");
+    const s=raw.split("\n").map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean).join("\n");
+    if(s){html+="<section aria-label=\"עמוד "+p+"\"><h3>עמוד "+p+"</h3>"+s.split("\n").map(x=>"<p dir=\"auto\">"+esc(x)+"</p>").join("")+"</section>";all+=s+"\n"}
   }
   if(all.trim().length<40){
     say("לקובץ ה-PDF הזה אין שכבת טקסט — כנראה שזה מסמך סרוק (תמונה). אי אפשר לקרוא אותו כאן.","err");
@@ -182,9 +187,12 @@ async function showEpub(name,buf){
     if(!f)continue;
     const d=new DOMParser().parseFromString(await f.async("text"),"text/html");
     d.querySelectorAll("script,style").forEach(x=>x.remove());
-    const t=d.body?d.body.innerText.trim():"";
+    const BSEL="h1,h2,h3,h4,h5,h6,p,li,pre,blockquote";
+    let parts=d.body?Array.from(d.body.querySelectorAll(BSEL)).filter(el=>!el.querySelector(BSEL)).map(el=>el.textContent.replace(/\s+/g," ").trim()).filter(Boolean):[];
+    if(!parts.length&&d.body){const bt=d.body.textContent.replace(/\s+/g," ").trim();if(bt)parts=[bt];}
+    const t=parts.join("\n\n").trim();
     if(t.length<3)continue;
-    chap++;html+="<section aria-label=\"חלק "+chap+"\"><h3>חלק "+chap+"</h3><p>"+esc(t).replace(/\n{2,}/g,"</p><p>")+"</p></section>";
+    chap++;html+="<section aria-label=\"חלק "+chap+"\"><h3>חלק "+chap+"</h3>"+t.split(/\n{2,}/).map(x=>"<p dir=\"auto\">"+esc(x)+"</p>").join("")+"</section>";
     all+=t+"\n\n";
   }
   if(!all.trim())throw new Error("empty");
@@ -238,7 +246,7 @@ function stringsPreview(buf){
 async function handleFile(file){
   reset();say("פותח את "+file.name+"…");
   if(file.size>80*1048576){say("הקובץ גדול מדי לעיבוד בדפדפן ("+human(file.size)+"). אפשר לנסות קובץ קטן יותר.","err");return}
-  metaTxt.textContent=file.name+" · "+human(file.size)+(file.type?" · "+file.type:"");
+  metaTxt.textContent=file.name+" · "+human(file.size);metaTech.hidden=!file.type;metaMime.textContent=file.type||"";
   const ext=(file.name.match(/\.([^.]+)$/)||[""])[1].toLowerCase();
   try{
     if(["txt","md","log","sub","ass","xml","html","htm"].includes(ext)){
