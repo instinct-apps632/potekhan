@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1420">
+<title>פותחן — קריאת קבצים נגישה</title>
+<link rel="manifest" href="manifest.json">
+<style>
+:root{--bg:#0f1420;--card:#1a2233;--line:#2c3a55;--txt:#eef2fa;--dim:#9fb0cc;--acc:#60a5fa;--acc2:#fbbf24;--ok:#34d399;--err:#f87171}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--txt);line-height:1.75;padding:1rem;max-width:46rem;margin:0 auto}
+h1{font-size:1.6rem;margin-bottom:.4rem}
+h2{font-size:1.2rem;margin:1.2rem 0 .5rem}
+.sub{color:var(--dim);font-size:1rem;margin-bottom:1.2rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:1rem;padding:1.1rem;margin-bottom:1rem}
+button{background:var(--acc);color:#0b1220;border:0;border-radius:.7rem;padding:.85rem 1.2rem;font-size:1.05rem;font-weight:700;cursor:pointer;min-height:48px}
+button.ghost{background:var(--card);color:var(--txt);border:1px solid var(--line)}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--acc2);outline-offset:2px}
+.row{display:flex;gap:.7rem;flex-wrap:wrap;align-items:center}
+.hidden-input{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.status{margin:.8rem 0;font-size:1.05rem;min-height:1.6rem}
+.status.err{color:var(--err)}
+.status.ok{color:var(--ok)}
+.note{font-size:.9rem;color:var(--acc2);margin:.5rem 0}
+.dim{color:var(--dim);font-size:.85rem}
+article[lang]{font-size:1.15rem;overflow-wrap:anywhere}
+article pre{white-space:pre-wrap;font-family:inherit;background:#0b1220;border:1px solid var(--line);border-radius:.6rem;padding:.9rem;font-size:1.05rem}
+table{border-collapse:collapse;width:100%;font-size:1rem}
+th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:right;vertical-align:top}
+th{background:#0b1220}
+.zrow{display:flex;justify-content:space-between;gap:.6rem;padding:.5rem 0;border-bottom:1px solid var(--line);align-items:center}
+.zrow .nm{overflow-wrap:anywhere}
+.zrow .sz{color:var(--dim);font-size:.85rem;white-space:nowrap}
+.zrow button{padding:.35rem .8rem;font-size:.9rem;min-height:40px}
+.imgprev{max-width:100%;border-radius:.6rem;border:1px solid var(--line)}
+a{color:var(--acc)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+<h1>פותחן</h1>
+<p class="sub">מקבלים קובץ בוואטסאפ או במייל והטלפון לא יודע לפתוח? בוחרים אותו כאן והוא מוצג כטקסט נקי לקריאה. הקובץ נשאר במכשיר שלכם — הוא לא נשלח לשום שרת.</p>
+</header>
+<main>
+<section class="card" aria-labelledby="pick-h">
+<h2 id="pick-h">בחירת קובץ</h2>
+<div class="row">
+<button id="btnPick">בחירת קובץ מהמכשיר</button>
+</div>
+<input type="file" id="inFile" class="hidden-input" aria-hidden="true" tabindex="-1">
+<p class="dim">אפשר גם לגרור קובץ לכל שטח הדף. סוגים שאפשר לקרוא: טקסט, כתוביות, CSV, JSON, מסמכי Word (docx), PDF עם שכבת טקסט, ספרים דיגיטליים (epub), ורשימת תוכן של zip. סוגים אחרים מקבלים הודעה כנה.</p>
+</section>
+<div class="status" id="status" role="status" aria-live="polite"></div>
+<section id="metaCard" class="card" hidden aria-labelledby="meta-h">
+<h2 id="meta-h">פרטי הקובץ</h2>
+<p id="metaTxt"></p>
+<div class="row" id="actRow" style="margin-top:.6rem">
+<button class="ghost" id="btnCopy">העתקת הטקסט</button>
+<button class="ghost" id="btnSave">שמירה כקובץ טקסט</button>
+<button class="ghost" id="btnAgain">קובץ אחר</button>
+</div>
+</section>
+<article id="out" lang="he" hidden></article>
+<section id="zCard" class="card" hidden aria-labelledby="z-h">
+<h2 id="z-h">תוכן הארכיון</h2>
+<div id="zList"></div>
+</section>
+<p class="note" id="encNote" hidden></p>
+</main>
+<footer class="dim" style="margin-top:1.5rem">
+<p>הכול מעובד במכשיר שלכם, בלי שרת ובלי חשבון. מגבלות ידועות: PDF סרוק (תמונה בלי שכבת טקסט) לא ניתן לקריאה ותוצג הודעה מתאימה; מסמכי Word ישנים (doc בלבד) אינם נתמכים; קבצי מדיה (וידאו/שמע) מוצגים כפרטי קובץ בלבד.</p>
+</footer>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/mammoth.browser.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const statusEl=$("status"),out=$("out"),metaCard=$("metaCard"),metaTxt=$("metaTxt"),zCard=$("zCard"),zList=$("zList"),encNote=$("encNote");
+let curText="",curName="";
+function say(m,c){statusEl.textContent=m;statusEl.className="status "+(c||"")}
+function human(n){if(n<1024)return n+" בייט";if(n<1048576)return (n/1024).toFixed(1)+" ק״ב";return (n/1048576).toFixed(1)+" מ״ב"}
+function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function reset(){out.hidden=true;out.innerHTML="";zCard.hidden=true;zList.innerHTML="";metaCard.hidden=true;encNote.hidden=true;curText="";curName=""}
+
+/* ---- encoding ---- */
+function decodeBytes(buf){
+  const b=new Uint8Array(buf);
+  try{return{text:new TextDecoder("utf-8",{fatal:true}).decode(b),fixed:false}}catch(e){}
+  try{return{text:new TextDecoder("windows-1255").decode(b),fixed:true}}catch(e){}
+  return{text:new TextDecoder("utf-8").decode(b),fixed:false};
+}
+/* ---- text handlers ---- */
+function showText(name,txt,fixed){
+  curText=txt;curName=name;
+  out.innerHTML="<h2>"+esc(name)+"</h2><pre>"+esc(txt)+"</pre>";
+  out.hidden=false;metaCard.hidden=false;
+  if(fixed){encNote.textContent="שם לב: הקובץ היה בקידוד עברי ישן (Windows-1255) ותוקן אוטומטית.";encNote.hidden=false}
+}
+function srtToText(raw){
+  const lines=raw.replace(/\r/g,"").split("\n"),keep=[];
+  const timeRe=/^\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*--\>/;
+  for(let ln of lines){
+    const t=ln.trim();
+    if(!t||/^\d+$/.test(t)||timeRe.test(t)||t==="WEBVTT"||/^NOTE/.test(t))continue;
+    keep.push(t.replace(/<[^>]+>/g,""));
+  }
+  return keep.join("\n").replace(/\n{3,}/g,"\n\n").trim();
+}
+function csvToTable(txt){
+  const rows=[];let row=[],cell="",q=false;
+  for(let i=0;i<txt.length;i++){const c=txt[i];
+    if(q){if(c==='"'){if(txt[i+1]==='"'){cell+='"';i++}else q=false}else cell+=c}
+    else if(c==='"')q=true;
+    else if(c===','||c===';'||c==='\t'){row.push(cell);cell="";if(c!==','){/* keep delim */}}
+    else if(c==='\n'){row.push(cell);rows.push(row);row=[];cell=""}
+    else if(c!=='\r')cell+=c;
+  }
+  if(cell!==""||row.length){row.push(cell);rows.push(row)}
+  return rows;
+}
+function showCSV(name,txt){
+  const rows=csvToTable(txt).filter(r=>r.some(c=>c.trim()!==""));
+  if(!rows.length||rows[0].length<2){showText(name,txt,false);return}
+  const head=rows[0],body=rows.slice(1);
+  let h="<h2>"+esc(name)+"</h2><p class=\"dim\">"+body.length+" שורות</p><table><thead><tr>";
+  for(const c of head)h+="<th scope=\"col\">"+esc(c)+"</th>";
+  h+="</tr></thead><tbody>";
+  for(const r of body){h+="<tr>";for(let i=0;i<head.length;i++)h+="<td>"+esc(r[i]||"")+"</td>";h+="</tr>"}
+  h+="</tbody></table>";
+  curText=txt;curName=name;out.innerHTML=h;out.hidden=false;metaCard.hidden=false;
+}
+function showJSON(name,txt){
+  try{const o=JSON.parse(txt);showText(name,JSON.stringify(o,null,2),false)}
+  catch(e){showText(name,txt,false)}
+}
+/* ---- docx ---- */
+async function showDocx(name,buf){
+  const res=await mammoth.convertToHtml({arrayBuffer:buf});
+  const doc=new DOMParser().parseFromString(res.value,"text/html");
+  doc.querySelectorAll("script,style,iframe,object").forEach(n=>n.remove());
+  const html=doc.body.innerHTML.trim(),txt=doc.body.innerText.trim();
+  if(!txt)throw new Error("empty");
+  curText=txt;curName=name;
+  out.innerHTML="<h2>"+esc(name)+"</h2><div>"+html+"</div>";
+  out.hidden=false;metaCard.hidden=false;
+}
+/* ---- pdf ---- */
+async function showPdf(name,buf){
+  pdfjsLib.GlobalWorkerOptions.workerSrc="lib/pdf.worker.min.js";
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  const n=Math.min(pdf.numPages,300);
+  let all="",html="<h2>"+esc(name)+"</h2><p class=\"dim\">"+pdf.numPages+" עמודים</p>";
+  for(let p=1;p<=n;p++){
+    const pg=await pdf.getPage(p);
+    const tc=await pg.getTextContent();
+    const s=tc.items.map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
+    if(s){html+="<section aria-label=\"עמוד "+p+"\"><h3>עמוד "+p+"</h3><p>"+esc(s)+"</p></section>";all+=s+"\n"}
+  }
+  if(all.trim().length<40){
+    say("לקובץ ה-PDF הזה אין שכבת טקסט — כנראה שזה מסמך סרוק (תמונה). אי אפשר לקרוא אותו כאן.","err");
+    throw Object.assign(new Error("scanned"),{handled:true});
+  }
+  curText=all.trim();curName=name;
+  out.innerHTML=html;out.hidden=false;metaCard.hidden=false;
+}
+/* ---- epub ---- */
+async function showEpub(name,buf){
+  const zip=await JSZip.loadAsync(buf);
+  const cont=await zip.file("META-INF/container.xml").async("text");
+  const cdoc=new DOMParser().parseFromString(cont,"application/xml");
+  const root=cdoc.querySelector("rootfile").getAttribute("full-path");
+  const base=root.includes("/")?root.slice(0,root.lastIndexOf("/")+1):"";
+  const opf=new DOMParser().parseFromString(await zip.file(root).async("text"),"application/xml");
+  const man={};opf.querySelectorAll("manifest item").forEach(it=>man[it.getAttribute("id")]=it.getAttribute("href"));
+  const spine=[];opf.querySelectorAll("spine itemref").forEach(ir=>{const h=man[ir.getAttribute("idref")];if(h)spine.push(h)});
+  let html="<h2>"+esc(name)+"</h2>",all="",chap=0;
+  for(const href of spine){
+    const f=zip.file(decodeURIComponent(base+href))||zip.file(base+href);
+    if(!f)continue;
+    const d=new DOMParser().parseFromString(await f.async("text"),"text/html");
+    d.querySelectorAll("script,style").forEach(x=>x.remove());
+    const t=d.body?d.body.innerText.trim():"";
+    if(t.length<3)continue;
+    chap++;html+="<section aria-label=\"חלק "+chap+"\"><h3>חלק "+chap+"</h3><p>"+esc(t).replace(/\n{2,}/g,"</p><p>")+"</p></section>";
+    all+=t+"\n\n";
+  }
+  if(!all.trim())throw new Error("empty");
+  curText=all.trim();curName=name;
+  out.innerHTML=html;out.hidden=false;metaCard.hidden=false;
+}
+/* ---- zip ---- */
+const TEXTY=/\.(txt|srt|vtt|csv|json|md|log|sub|html?|xml)$/i;
+async function showZip(name,buf){
+  const zip=await JSZip.loadAsync(buf);
+  const entries=Object.values(zip.files).filter(f=>!f.dir);
+  entries.sort((a,b)=>a.name.localeCompare(b.name));
+  let items="";
+  entries.forEach((f,i)=>{
+    const rd=TEXTY.test(f.name)?"<button data-zi=\""+i+"\">קרא</button>":"";
+    items+="<div class=\"zrow\"><span class=\"nm\">"+esc(f.name)+"</span><span class=\"sz\">"+human(f._data?f._data.uncompressedSize||0:0)+"</span>"+rd+"</div>";
+  });
+  zList.innerHTML=items||"<p>הארכיון ריק.</p>";
+  zCard.hidden=false;metaCard.hidden=false;
+  metaTxt.textContent=name+" · ארכיון zip עם "+entries.length+" קבצים. קבצי טקסט שבפנים אפשר לקרוא ישירות.";
+  window.__zip=zip;window.__zipEntries=entries;
+  zList.querySelectorAll("button[data-zi]").forEach(b=>b.addEventListener("click",async()=>{
+    const f=entries[parseInt(b.dataset.zi,10)];
+    try{const b2=await f.async("arraybuffer");const d=decodeBytes(b2);
+      say("נפתח מתוך הארכיון: "+f.name,"ok");showText(f.name,d.text,d.fixed);out.scrollIntoView({behavior:"smooth"})}
+    catch(e){say("לא הצלחתי לקרוא את הקובץ הזה מתוך הארכיון.","err")}
+  }));
+}
+/* ---- image ---- */
+function showImage(name,file){
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=()=>{
+    out.innerHTML="<h2>"+esc(name)+"</h2><p class=\"dim\">"+img.naturalWidth+"×"+img.naturalHeight+" פיקסלים</p><img class=\"imgprev\" src=\""+url+"\" alt=\""+esc(name)+"\">";
+    out.hidden=false;metaCard.hidden=false;say("התמונה מוצגת.","ok");
+  };
+  img.onerror=()=>{say("התמונה לא נטענת — ייתכן שהקובץ פגום.","err")};
+  img.src=url;
+}
+/* ---- strings preview for unknown ---- */
+function stringsPreview(buf){
+  const b=new Uint8Array(buf.slice(0,4096));let s="",run="";
+  for(const c of b){
+    if(c>=32&&c<127){run+=String.fromCharCode(c)}
+    else{if(run.length>=5)s+=run+"\n";run=""}
+  }
+  if(run.length>=5)s+=run;
+  return s.split("\n").slice(0,15).join("\n");
+}
+/* ---- router ---- */
+async function handleFile(file){
+  reset();say("פותח את "+file.name+"…");
+  if(file.size>80*1048576){say("הקובץ גדול מדי לעיבוד בדפדפן ("+human(file.size)+"). אפשר לנסות קובץ קטן יותר.","err");return}
+  metaTxt.textContent=file.name+" · "+human(file.size)+(file.type?" · "+file.type:"");
+  const ext=(file.name.match(/\.([^.]+)$/)||[""])[1].toLowerCase();
+  try{
+    if(["txt","md","log","sub","ass","xml","html","htm"].includes(ext)){
+      const d=decodeBytes(await file.arrayBuffer());showText(file.name,d.text,d.fixed);say("נפתח לקריאה.","ok");
+    }else if(["srt","vtt"].includes(ext)){
+      const d=decodeBytes(await file.arrayBuffer());showText(file.name,srtToText(d.text),d.fixed);say("הכתוביות נפתחו כטקסט רציף.","ok");
+    }else if(ext==="csv"){
+      const d=decodeBytes(await file.arrayBuffer());showCSV(file.name,d.text);say("הטבלה נפתחה.","ok");
+    }else if(ext==="json"){
+      const d=decodeBytes(await file.arrayBuffer());showJSON(file.name,d.text);say("נפתח לקריאה.","ok");
+    }else if(ext==="docx"){
+      await showDocx(file.name,await file.arrayBuffer());say("המסמך נפתח לקריאה.","ok");
+    }else if(ext==="doc"){
+      say("זה מסמך Word בפורמט ישן (doc) שאי אפשר לקרוא כאן. אם שומרים אותו מחדש כ-docx ב-Word או ב-Google Docs, הוא ייפתח.","err");metaCard.hidden=false;
+    }else if(ext==="pdf"){
+      await showPdf(file.name,await file.arrayBuffer());say("ה-PDF נפתח לקריאה.","ok");
+    }else if(ext==="epub"){
+      await showEpub(file.name,await file.arrayBuffer());say("הספר נפתח לקריאה.","ok");
+    }else if(ext==="zip"){
+      await showZip(file.name,await file.arrayBuffer());say("הארכיון נפתח — רשימת התוכן למטה.","ok");
+    }else if(/^(jpe?g|png|gif|webp|bmp|avif)$/.test(ext)||(file.type||"").startsWith("image/")){
+      showImage(file.name,file);metaCard.hidden=false;
+    }else if(/^(mp3|m4a|aac|ogg|opus|wav|mp4|mkv|webm|mov|avi)$/.test(ext)||/^(audio|video)\//.test(file.type||"")){
+      say("זה קובץ שמע או וידאו — אין בו טקסט לקריאה כאן. לניגון אפשר להשתמש בנגן המובנה של הטלפון.","err");metaCard.hidden=false;
+    }else{
+      const prev=stringsPreview(await file.slice(0,4096).arrayBuffer());
+      metaCard.hidden=false;
+      if(prev.trim()){out.innerHTML="<h2>"+esc(file.name)+"</h2><p class=\"dim\">סוג הקובץ לא נתמך לקריאה מלאה. להלן קטעי טקסט שזוהו בתוך הקובץ:</p><pre>"+esc(prev)+"</pre>";out.hidden=false}
+      say("סוג הקובץ הזה ("+(ext||"לא ידוע")+") לא נתמך לקריאה. לא קרה כלום לקובץ — הוא לא שונה ולא נשלח לשום מקום.","err");
+    }
+  }catch(e){
+    if(!e||!e.handled)say("לא הצלחתי לפתוח את הקובץ — ייתכן שהוא פגום או שהפורמט שונה מהמצופה. אפשר לנסות קובץ אחר.","err");
+  }
+}
+$("btnPick").addEventListener("click",()=>$("inFile").click());
+$("inFile").addEventListener("change",e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value=""});
+document.addEventListener("dragover",e=>e.preventDefault());
+document.addEventListener("drop",e=>{e.preventDefault();if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0])});
+$("btnCopy").addEventListener("click",async()=>{
+  if(!curText){say("אין טקסט להעתקה עבור הקובץ הזה.","err");return}
+  try{await navigator.clipboard.writeText(curText);say("הטקסט הועתק.","ok")}
+  catch(e){say("ההעתקה נחסמה בדפדפן הזה. אפשר לסמן את הטקסט ולהעתיק ידנית.","err")}
+});
+$("btnSave").addEventListener("click",()=>{
+  if(!curText){say("אין טקסט לשמירה עבור הקובץ הזה.","err");return}
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([curText],{type:"text/plain;charset=utf-8"}));
+  a.download=curName.replace(/\.[^.]+$/,"")+".txt";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);say("נשמר כקובץ טקסט.","ok");
+});
+$("btnAgain").addEventListener("click",()=>{reset();say("");$("inFile").click()});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
